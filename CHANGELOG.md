@@ -1,5 +1,11 @@
 # Changelog
 
+## `changelogs@0.6.0`
+
+### Minor Changes
+
+- Replaced auto-generate workflow with check action that comments on PRs with changelog status and optional AI-generated previews. (by @jxom, [1de21bd](https://github.com/wevm/changelogs/commit/1de21bd))
+
 ## `changelogs@0.5.2`
 
 ### Patch Changes
