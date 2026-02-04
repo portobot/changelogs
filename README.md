@@ -200,12 +200,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - run: npm install -g @sourcegraph/amp
+      - run: npm install -g @sourcegraph/amp # optional
 
       - uses: wevm/changelogs/comment@master
         with:
           run-id: ${{ github.event.workflow_run.id }}
-          ai: 'amp -x'
+          ai: 'amp -x' # optional
         env:
           AMP_API_KEY: ${{ secrets.AMP_API_KEY }}
 ```
