@@ -1,0 +1,25 @@
+name: Changelog Comment
+
+on:
+  workflow_run:
+    workflows: ["Changelog"]
+    types: [completed]
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.event == 'pull_request'
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Claude CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - uses: ./comment
+        with:
+          run-id: ${{ github.event.workflow_run.id }}
+          ai: 'claude -p'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

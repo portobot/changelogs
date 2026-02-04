@@ -158,6 +158,10 @@ changelogs add --ai "claude -p"
 
 Comments on PRs with changelog status. If no changelog exists and `ai` is provided, generates one and pre-fills the "Add changelog" link.
 
+This requires two workflow files to support commenting on fork PRs:
+
+**`.github/workflows/changelog.yml`** - Runs on PRs, checks for changelog:
+
 ```yaml
 name: Changelog
 
@@ -166,17 +170,41 @@ on:
     types: [opened, synchronize]
 
 jobs:
-  changelog:
+  check:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - uses: wevm/changelogs/check@master
+```
+
+**`.github/workflows/changelog-comment.yml`** - Posts comment (works for forks):
+
+```yaml
+name: Changelog Comment
+
+on:
+  workflow_run:
+    workflows: ["Changelog"]
+    types: [completed]
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.event == 'pull_request'
     permissions:
-      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
       - run: npm install -g @sourcegraph/amp
 
-      - uses: wevm/changelogs/check@master
+      - uses: wevm/changelogs/comment@master
         with:
+          run-id: ${{ github.event.workflow_run.id }}
           ai: 'amp -x'
         env:
           AMP_API_KEY: ${{ secrets.AMP_API_KEY }}

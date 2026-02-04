@@ -5,27 +5,12 @@ on:
     types: [opened, synchronize]
 
 jobs:
-  check-changelog:
-    # Skip for fork PRs - we can't write to forks and can't checkout their branches
-    if: github.event.pull_request.head.repo.full_name == github.repository
+  check:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
 
-      - name: Install Claude CLI
-        run: npm install -g @anthropic-ai/claude-code
-
-      - name: Check changelogs
-        uses: ./check
-        timeout-minutes: 5
-        with:
-          ai: 'claude -p --dangerously-skip-permissions'
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - uses: ./check

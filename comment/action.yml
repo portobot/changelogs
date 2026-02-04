@@ -1,0 +1,147 @@
+name: 'Comment Changelog'
+description: 'Post changelog status comment on PR (use in workflow_run after check action)'
+author: 'wevm'
+
+inputs:
+  token:
+    description: 'GitHub token for commenting on PR'
+    required: false
+    default: ${{ github.token }}
+  run-id:
+    description: 'The workflow run ID to download artifacts from'
+    required: true
+  ai:
+    description: 'AI command to generate changelog (must accept stdin)'
+    required: false
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download result artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: changelog-result
+        path: /tmp/changelog-result
+        github-token: ${{ inputs.token }}
+        run-id: ${{ inputs.run-id }}
+
+    - name: Install changelogs
+      if: inputs.ai != ''
+      shell: bash
+      run: |
+        if [ -f "/tmp/changelog-result/diff.txt" ]; then
+          curl -sSL https://changelogs.sh | sh
+        fi
+
+    - name: Generate changelog with AI
+      id: ai
+      if: inputs.ai != ''
+      shell: bash
+      run: |
+        if [ ! -f "/tmp/changelog-result/diff.txt" ]; then
+          echo "No diff found, skipping AI generation"
+          exit 0
+        fi
+        
+        export PATH="$HOME/.local/bin:$PATH"
+        
+        # Create temp directory for changelogs to work in
+        WORK_DIR=$(mktemp -d)
+        mkdir -p "$WORK_DIR/.changelog"
+        echo -e "[changelog]\nformat = \"root\"" > "$WORK_DIR/.changelog/config.toml"
+        cd "$WORK_DIR"
+        git init -q
+        
+        # Pipe diff to AI command and capture output
+        CHANGELOG_CONTENT=$(cat /tmp/changelog-result/diff.txt | ${{ inputs.ai }} 2>/dev/null || echo "")
+        
+        if [ -n "$CHANGELOG_CONTENT" ]; then
+          echo "$CHANGELOG_CONTENT" > /tmp/changelog-result/ai_changelog.md
+        fi
+
+    - name: Post comment
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        cd /tmp/changelog-result
+        
+        PR_NUMBER=$(cat pr_number.txt)
+        HEAD_REF=$(cat head_ref.txt)
+        FOUND=$(cat found.txt)
+        REPO="${{ github.repository }}"
+        
+        if [ "$FOUND" = "true" ]; then
+          CHANGELOG_FILE=$(cat changelog_files.txt | head -n1)
+          EDIT_URL="https://github.com/${REPO}/edit/${HEAD_REF}/${CHANGELOG_FILE}"
+          BODY="### ✅ Changelog found on PR.
+
+        [Edit changelog](${EDIT_URL})"
+        else
+          # Check for AI-generated changelog
+          if [ -f "ai_changelog.md" ]; then
+            TEMPLATE=$(cat ai_changelog.md)
+            AI_GENERATED=true
+          else
+            TEMPLATE="---
+        <package-name>: patch
+        ---
+
+        Brief description of changes."
+            AI_GENERATED=false
+          fi
+          
+          # URL encode the template
+          ENCODED_TEMPLATE=$(python3 -c "import urllib.parse; import sys; print(urllib.parse.quote(sys.stdin.read()))" < <(echo "$TEMPLATE"))
+          
+          # Generate random changelog ID
+          ADJECTIVES=(brave calm dark eager fair gentle happy icy jolly keen lively merry nice odd proud quick rare shy tall unique vast warm young zesty bold cool dry easy fast good hot kind lazy mild neat old plain quiet rich safe tidy ugly vain weak aged big cute dull evil fine)
+          NOUNS=(lions bears wolves eagles hawks foxes deer owls cats dogs birds fish frogs bees ants mice rats bats crows doves ducks geese hens pigs cows goats sheep horses mules donkeys tigers pandas koalas seals whales sharks crabs clams snails slugs trees rocks waves winds clouds stars moons suns hills lakes)
+          VERBS=(dance sing jump run walk swim fly crawl climb slide roll spin twist shake wave bow nod wink smile laugh cry shout whisper hum buzz roar growl bark meow chirp play rest sleep wake eat drink cook bake read write draw paint build break fix clean wash dry fold pack)
+          ADJ=${ADJECTIVES[$RANDOM % ${#ADJECTIVES[@]}]}
+          NOUN=${NOUNS[$RANDOM % ${#NOUNS[@]}]}
+          VERB=${VERBS[$RANDOM % ${#VERBS[@]}]}
+          CHANGELOG_ID="${ADJ}-${NOUN}-${VERB}"
+          NEW_FILE=".changelog/${CHANGELOG_ID}.md"
+          ADD_URL="https://github.com/${REPO}/new/${HEAD_REF}?filename=${NEW_FILE}&value=${ENCODED_TEMPLATE}"
+          
+          if [ "$AI_GENERATED" = "true" ]; then
+            BODY="### ⚠️ Changelog not found.
+
+        A changelog entry is required before merging. We've generated a suggested changelog based on your changes:
+
+        <details>
+        <summary>Preview</summary>
+
+        \`\`\`markdown
+        ${TEMPLATE}
+        \`\`\`
+
+        </details>
+
+        **[Add changelog](${ADD_URL})** to commit this to your branch."
+          else
+            BODY="### ⚠️ Changelog not found.
+
+        A changelog entry is required before merging.
+
+        **[Add changelog](${ADD_URL})**"
+          fi
+        fi
+        
+        # Find existing comment
+        COMMENT_ID=$(gh api \
+          -H "Accept: application/vnd.github+json" \
+          "/repos/${REPO}/issues/${PR_NUMBER}/comments" \
+          --jq '.[] | select(.body | startswith("### ✅ Changelog") or startswith("### ⚠️ Changelog")) | .id' \
+          | head -n1 || true)
+        
+        if [ -n "$COMMENT_ID" ]; then
+          gh api \
+            --method PATCH \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${REPO}/issues/comments/${COMMENT_ID}" \
+            -f body="$BODY"
+        else
+          gh pr comment "$PR_NUMBER" --body "$BODY"
+        fi
